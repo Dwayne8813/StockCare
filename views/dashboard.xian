@@ -1,0 +1,52 @@
+﻿{{> head}}
+<body class="sc has-sidebar">
+<div class="app">
+  {{> sidebar}}
+  <main class="content">
+    {{> flash}}
+    <div class="page-header">
+      <div><h1>Welcome back, {{username}}! 👋</h1><p class="muted">Live overview of your kitchen stock.</p></div>
+      <a href="/inventory/add" class="btn btn-primary">+ Add Product</a>
+    </div>
+
+    <div class="metrics">
+      <div class="card metric"><span class="metric-label">Total Inventory Value</span><span class="metric-value">{{money metrics.totalValue}}</span></div>
+      <div class="card metric"><span class="metric-label">Tracked Products</span><span class="metric-value">{{metrics.tracked}}</span></div>
+      <div class="card metric"><span class="metric-label">Low / Out of Stock</span><span class="metric-value text-amber">{{metrics.lowOut}}</span></div>
+      <div class="card metric"><span class="metric-label">Expired Products</span><span class="metric-value text-red">{{metrics.expired}}</span></div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th></th><th>Product</th><th>Category</th><th>Quantity</th><th>Unit Cost</th><th>Total Value</th><th>Expiry</th><th>Status</th><th class="right">Actions</th></tr>
+          </thead>
+          <tbody>
+          {{#each items}}
+            <tr>
+              <td>{{#if image}}<img class="thumb" src="{{image}}" alt="">{{else}}<div class="thumb placeholder"></div>{{/if}}</td>
+              <td class="strong">{{itemName}}</td>
+              <td>{{category}}</td>
+              <td>{{quantity}} {{stockUnit this}}</td>
+              <td>{{money unitCost}}</td>
+              <td>{{money totalValue}}</td>
+              <td>{{fmtDate expiryDate}}</td>
+              <td><span class="badge st-{{status.key}}">{{status.label}}</span></td>
+              <td class="right actions">
+                <form method="POST" action="/inventory/adjust/{{id}}" class="inline"><input type="hidden" name="delta" value="-1"><button class="btn-icon" title="Remove 1">-</button></form>
+                <form method="POST" action="/inventory/adjust/{{id}}" class="inline"><input type="hidden" name="delta" value="1"><button class="btn-icon" title="Add 1">+</button></form>
+                <a href="/inventory/edit/{{id}}" class="btn btn-ghost btn-sm">Edit</a>
+                <form method="POST" action="/inventory/delete/{{id}}" class="inline" data-confirm="Delete this product?"><button type="submit" class="btn btn-danger btn-sm">Delete</button></form>
+              </td>
+            </tr>
+          {{else}}
+            <tr><td colspan="9" class="empty">No products yet. Add your first one to get started.</td></tr>
+          {{/each}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+{{> footer}}

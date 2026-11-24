@@ -1,0 +1,617 @@
+﻿
+===== index.js =====
+/*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+    
+import express from "express";
+import path from "path";
+import session from "express-session";
+import router from "./routes/index.js";
+import fs from 'fs';
+import hbs from "hbs";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(process.cwd(), "public")));
+
+app.use(session({
+  secret: "xianfire-secret-key",
+  resave: false,
+  saveUninitialized: false
+}));
+
+app.engine("xian", async (filePath, options, callback) => {
+  try {
+     const originalPartialsDir = hbs.partialsDir;
+    hbs.partialsDir = path.join(__dirname, 'views');
+
+    const result = await new Promise((resolve, reject) => {
+      hbs.__express(filePath, options, (err, html) => {
+        if (err) return reject(err);
+        resolve(html);
+      });
+    });
+
+    hbs.partialsDir = originalPartialsDir;
+    callback(null, result);
+  } catch (err) {
+    callback(err);
+  }
+});
+
+app.set("views", path.join(__dirname, "views"));
+app.set("view engine", "xian");
+const partialsDir = path.join(__dirname, "views/partials");
+fs.readdir(partialsDir, (err, files) => {
+  if (err) {
+    console.error("❌ Could not read partials directory:", err);
+    return;
+  }
+
+   files
+    .filter(file => file.endsWith('.xian'))
+    .forEach(file => {
+      const partialName = file.replace('.xian', ''); 
+      const fullPath = path.join(partialsDir, file);
+
+      fs.readFile(fullPath, 'utf8', (err, content) => {
+        if (err) {
+          console.error(`❌ Failed to read partial: ${file}`, err);
+          return;
+        }
+        hbs.registerPartial(partialName, content);
+        
+      });
+    });
+});
+
+app.use("/", router);
+
+export default app;
+
+if (!process.env.ELECTRON) {
+  app.listen(PORT, () => console.log(`🔥 XianFire running at http://localhost:${PORT}`));
+}
+
+
+===== migrate.js =====
+
+    /*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+    
+import { sequelize } from "./models/db.js";
+import { User } from "./models/userModel.js";
+import inquirer from "inquirer";
+
+const { createDb } = await inquirer.prompt([
+  { type: "confirm", name: "createDb", message: "Database 'StockCare' may not exist. Create it?", default: true }
+]);
+
+if (createDb) {
+  await sequelize.query("CREATE DATABASE IF NOT EXISTS StockCare;");
+  console.log("✅ Database created (if it did not exist)");
+}
+
+try {
+  await sequelize.authenticate();
+  console.log("✅ Connected to MySQL database!");
+  await sequelize.sync({ force: true });
+  console.log("✅ Tables created for all models!");
+} catch (err) {
+  console.error("❌ Migration failed:", err);
+} finally {
+  process.exit();
+};
+
+
+===== create.js =====
+/*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+import fs from 'fs/promises';
+import path from 'path';
+
+const args = process.argv.slice(2);
+
+if (args.length < 2) {
+  console.log(`
+🚀 Sequelize Model & Express Controller Generator
+
+Usage:
+  npm run create:model <ModelName>
+  npm run create:controller <ControllerName>
+
+Examples:
+  npm run create:model User
+  npm run create:controller userController
+
+Note: Controller names are typically camelCase (e.g., userController, productController)
+`);
+  process.exit(0);
+}
+
+const type = args[0]; // 'model' or 'controller'
+const name = args[1]; // e.g., 'User' or 'userController'
+
+// Ensure directories exist
+const ensureDir = async (dir) => {
+  try {
+    await fs.access(dir);
+  } catch {
+    await fs.mkdir(dir, { recursive: true });
+  }
+};
+
+// PascalCase for model names
+const toPascalCase = (str) => {
+  return str
+    .replace(/[^a-zA-Z0-9]/g, ' ')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join('');
+};
+
+// camelCase for controller names
+const toCamelCase = (str) => {
+  const pascal = toPascalCase(str);
+  return pascal.charAt(0).toLowerCase() + pascal.slice(1);
+};
+
+// Generate Model (Sequelize for MySQL, Mongoose for MongoDB, Firestore helpers for Firebase)
+const createModel = async (modelName) => {
+  const modelDir = path.join(process.cwd(), 'models');
+  await ensureDir(modelDir);
+
+  const pascalName = toPascalCase(modelName);
+  const modelPath = path.join(modelDir, `${pascalName}.js`);
+
+  let modelContent = `
+  /*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+  // Firebase doesn't require predefined models.
+  // Use Firestore directly in controllers or create helper functions here.
+  // Collection name: "${pascalName.toLowerCase()}"
+
+  import { DataTypes } from "sequelize";
+import { sequelize } from "./db.js";
+
+export const Student = sequelize.define("students", {
+  FirstName: { type: DataTypes.STRING, allowNull: false },
+  LastName: { type: DataTypes.STRING, allowNull: false },
+  MiddleName: { type: DataTypes.STRING, allowNull: false },
+  Program: { type: DataTypes.STRING, allowNull: false },
+  YearLevel: { type: DataTypes.STRING, allowNull: false },
+  Section: { type: DataTypes.STRING, allowNull: false },
+});
+export { sequelize }; 
+  `.trim();
+
+  await fs.writeFile(modelPath, modelContent);
+  console.log(`✅ Firebase Model helper created: ${modelPath}`);
+};
+
+// Generate Express Controller (named exports)
+const createController = async (controllerName) => {
+  const controllerDir = path.join(process.cwd(), 'controllers');
+  await ensureDir(controllerDir);
+
+  const camelName = toCamelCase(controllerName); // e.g., userController
+  const pascalModelName = toPascalCase(camelName.replace(/controller$/, '')); // e.g., User
+  const controllerPath = path.join(controllerDir, `${camelName}.js`);
+
+  const controllerContent = `
+/*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+import { ${pascalModelName} } from "../models/${pascalModelName}.js";
+
+export const index = async (req, res) => {
+  res.send("Index Page");
+};
+`.trim();
+
+  await fs.writeFile(controllerPath, controllerContent);
+  console.log(`✅ Express Controller created: ${controllerPath}`);
+};
+
+// Run based on type
+(async () => {
+  try {
+    if (type === 'model') {
+      await createModel(name);
+    } else if (type === 'controller') {
+      await createController(name);
+    } else {
+      console.error('❌ Unknown type. Use "model" or "controller".');
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('❌ Error:', err.message);
+    process.exit(1);
+  }
+})();
+
+===== models\db.js =====
+
+      /*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+    
+import { Sequelize } from "sequelize";
+
+export const sequelize = new Sequelize("StockCare", "root", "", {
+  host: "localhost",
+  dialect: "mysql"
+});
+
+===== models\userModel.js =====
+
+
+      /*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+import { DataTypes } from "sequelize";
+import { sequelize } from "./db.js";
+
+export const User = sequelize.define("User", {
+  name: { type: DataTypes.STRING, allowNull: false },
+  email: { type: DataTypes.STRING, allowNull: false },
+  password: { type: DataTypes.STRING, allowNull: false }
+});
+export { sequelize }; 
+
+
+===== routes\index.js =====
+
+  /*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+    
+import express from "express";
+import { homePage } from "../controllers/homeController.js";
+const router = express.Router();
+router.get("/", homePage);
+
+import { loginPage, registerPage, forgotPasswordPage, dashboardPage, loginUser, registerUser, logoutUser } from "../controllers/authController.js";
+
+router.get("/login", loginPage);
+router.post("/login", loginUser);
+router.get("/register", registerPage);
+router.post("/register", registerUser);
+router.get("/forgot-password", forgotPasswordPage);
+router.get("/dashboard", dashboardPage);
+router.get("/logout", logoutUser);
+
+export default router;
+
+
+===== controllers\authController.js =====
+
+      /*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+    
+import bcrypt from "bcrypt";
+import { User, sequelize } from "../models/userModel.js";
+await sequelize.sync();
+
+export const loginPage = (req, res) => res.render("login", { title: "Login" });
+export const registerPage = (req, res) => res.render("register", { title: "Register" });
+export const forgotPasswordPage = (req, res) => res.render("forgotpassword", { title: "Forgot Password" });
+export const dashboardPage = (req, res) => {
+  if (!req.session.userId) return res.redirect("/login");
+  res.render("dashboard", { title: "Dashboard" });
+};
+
+export const loginUser = async (req, res) => {
+  const { email, password } = req.body;
+  const user = await User.findOne({ where: { email } });
+  if (!user) return res.send("User not found");
+  const match = await bcrypt.compare(password, user.password);
+  if (!match) return res.send("Incorrect password");
+  req.session.userId = user.id;
+  res.redirect("/dashboard");
+};
+
+export const registerUser = async (req, res) => {
+  const { name, email, password } = req.body;
+  const hashed = await bcrypt.hash(password, 10);
+  const user = await User.create({ name, email, password: hashed });
+  req.session.userId = user.id;
+  res.redirect("/dashboard");
+};
+
+export const logoutUser = (req, res) => {
+  req.session.destroy();
+  res.redirect("/login");
+};
+
+
+===== controllers\homeController.js =====
+
+    /*
+    MIT License
+    
+    Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
+    Mindoro State University - Philippines
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    */
+    export const homePage = (req, res) => {
+  res.render("home", { title: "XianFire Home" });
+};
+
+
+===== views\dashboard.xian =====
+{{> head}}
+<body class="bg-gray-50">
+  <div class="text-center mt-20">
+    <h2 class="text-2xl">Dashboard</h2>
+    <p class="mt-4">Welcome to your dashboard!</p>
+    <div class="mt-6">
+      <a href="/logout" class="text-red-600 font-medium">Logout</a>
+    </div>
+  </div>
+<%- include('partials/footer') %>
+
+===== views\login.xian =====
+{{> head}}
+<body class="bg-gray-50">
+  <div class="flex justify-center mt-10">
+    <form class="flex flex-col w-96 p-6 border rounded-lg shadow" method="POST" action="/login">
+      <h2 class="text-xl font-bold mb-4 text-center">Login</h2>
+      <input type="email" name="email" placeholder="Email" class="mb-2 p-2 border rounded" required />
+      <input type="password" name="password" placeholder="Password" class="mb-2 p-2 border rounded" required />
+      <button type="submit" class="bg-blue-500 text-white p-2 rounded">Login</button>
+      <a href="/register" class="text-blue-700 mt-2 text-center">Don't have an account? Register</a>
+    </form>
+  </div>
+{{> footer }}
+
+===== views\register.xian =====
+{{> head}}
+<body class="bg-gray-50">
+  <div class="flex justify-center mt-10">
+    <form class="flex flex-col w-96 p-6 border rounded-lg shadow" method="POST" action="/register">
+      <h2 class="text-xl font-bold mb-4 text-center">Register</h2>
+      <input type="text" name="name" placeholder="Name" class="mb-2 p-2 border rounded" required />
+      <input type="email" name="email" placeholder="Email" class="mb-2 p-2 border rounded" required />
+      <input type="password" name="password" placeholder="Password" class="mb-2 p-2 border rounded" required />
+      <button type="submit" class="bg-green-500 text-white p-2 rounded">Register</button>
+      <a href="/login" class="text-blue-700 mt-2 text-center">Already have an account? Login</a>
+    </form>
+  </div>
+<%- include('partials/footer') %>
+
+===== views\partials\head.xian =====
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>{{ title }} </title>
+</head>
+
+===== views\partials\footer.xian =====
+<footer class="mt-8 py-4 text-center text-gray-500 text-sm">
+  &copy; 2026 XianFire Framework — Built with ❤️ at Mindoro State University
+</footer>
+</body>
+</html>

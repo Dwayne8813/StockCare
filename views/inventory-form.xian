@@ -1,0 +1,48 @@
+{{> head}}
+<body class="sc has-sidebar">
+<div class="app">
+  {{> sidebar}}
+  <main class="content">
+    {{> flash}}
+    <div class="page-header">
+      <div>
+        <h1>{{#if isEdit}}Edit Product{{else}}Add Product{{/if}}</h1>
+        <p class="muted">{{#if isEdit}}Update stock details and pricing.{{else}}Register a new product in your inventory.{{/if}}</p>
+      </div>
+      <a href="/inventory" class="btn btn-ghost">Cancel</a>
+    </div>
+
+    <div class="card form-card">
+      {{#if error}}<div class="alert alert-error">{{error}}</div>{{/if}}
+      <form method="POST" action="{{action}}" enctype="multipart/form-data" class="form-grid">
+        <label class="span-2">Product name<input type="text" name="itemName" value="{{item.itemName}}" required></label>
+        <label>Category
+          <select name="category">
+            {{#each categories}}<option value="{{this}}" {{#if (eq this ../item.category)}}selected{{/if}}>{{this}}</option>{{/each}}
+          </select>
+        </label>
+        <label>Unit / package
+          <select name="unit">
+            {{#each units}}<option value="{{this}}" {{#if (eq this ../item.unit)}}selected{{/if}}>{{this}}</option>{{/each}}
+          </select>
+        </label>
+        <label>Quantity<input type="number" name="quantity" step="any" min="0" value="{{item.quantity}}" required></label>
+        <label>Amount per unit <span class="muted">(optional, e.g. 80 mL per bottle)</span>
+          <input type="number" name="amountPerUnit" step="any" min="0" value="{{item.amountPerUnit}}">
+        </label>
+        <label>Amount unit
+          <select name="amountUnit">
+            <option value="" {{#unless item.amountUnit}}selected{{/unless}}>None</option>
+            {{#each amountUnits}}<option value="{{this}}" {{#if (eq this ../item.amountUnit)}}selected{{/if}}>{{this}}</option>{{/each}}
+          </select>
+        </label>
+        <label>Unit cost<input type="number" name="unitCost" step="any" min="0" value="{{item.unitCost}}" required></label>
+        <label>Expiry date<input type="date" name="expiryDate" value="{{item.expiryDate}}"></label>
+        <label>Image<input type="file" name="image" accept="image/*"></label>
+        {{#if item.image}}<div class="span-2"><span class="muted">Current image</span><br><img class="preview" src="{{item.image}}" alt=""></div>{{/if}}
+        <div class="span-2 form-actions"><button type="submit" class="btn btn-primary">{{#if isEdit}}Save changes{{else}}Add to inventory{{/if}}</button></div>
+      </form>
+    </div>
+  </main>
+</div>
+{{> footer}}

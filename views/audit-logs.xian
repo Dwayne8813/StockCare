@@ -1,0 +1,33 @@
+{{> head}}
+<body class="sc has-sidebar">
+<div class="app">
+  {{> sidebar}}
+  <main class="content">
+    {{> flash}}
+    <div class="page-header">
+      <div><h1>{{title}}</h1><p class="muted">{{subtitle}}</p></div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Timestamp</th><th>Event</th><th>Description</th><th>User</th><th>IP Address</th></tr></thead>
+          <tbody>
+          {{#each logs}}
+            <tr>
+              <td class="nowrap">{{fmtDateTime timestamp}}</td>
+              <td><span class="badge {{auditClass event}}">{{event}}</span></td>
+              <td>{{description}}</td>
+              <td>{{username}}</td>
+              <td class="mono">{{ipAddress}}</td>
+            </tr>
+          {{else}}
+            <tr><td colspan="5" class="empty">No entries yet.</td></tr>
+          {{/each}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+{{> footer}}

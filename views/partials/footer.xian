@@ -1,0 +1,70 @@
+﻿<div id="sc-confirm" class="sc-modal" hidden>
+  <div class="sc-modal-card" role="dialog" aria-modal="true" aria-labelledby="sc-confirm-title">
+    <h2 id="sc-confirm-title">Are you sure?</h2>
+    <p id="sc-confirm-message" class="muted"></p>
+    <div class="sc-modal-actions">
+      <button type="button" class="btn btn-ghost" id="sc-confirm-cancel">Cancel</button>
+      <button type="button" class="btn btn-danger" id="sc-confirm-ok">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    // Auto-dismiss flash notifications after 4 seconds
+    function dismiss(el) {
+      if (!el || el.dataset.dismissing) return;
+      el.dataset.dismissing = '1';
+      el.style.transition = 'opacity .25s ease';
+      el.style.opacity = '0';
+      setTimeout(function () { el.remove(); }, 250);
+    }
+
+    document.querySelectorAll('.sc-flash').forEach(function (el) {
+      var close = el.querySelector('.alert-close');
+      if (close) close.addEventListener('click', function () { dismiss(el); });
+      setTimeout(function () { dismiss(el); }, 4000);
+    });
+
+    // Custom confirmation modal (replaces the browser's "localhost says..." dialog)
+    var modal = document.getElementById('sc-confirm');
+    var message = document.getElementById('sc-confirm-message');
+    var ok = document.getElementById('sc-confirm-ok');
+    var cancel = document.getElementById('sc-confirm-cancel');
+    var pendingForm = null;
+
+    function openModal(form) {
+      pendingForm = form;
+      message.textContent = form.getAttribute('data-confirm') || 'Are you sure?';
+      modal.hidden = false;
+      ok.focus();
+    }
+
+    function closeModal() {
+      modal.hidden = true;
+      pendingForm = null;
+    }
+
+    document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        openModal(form);
+      });
+    });
+
+    ok.addEventListener('click', function () {
+      if (!pendingForm) return;
+      var form = pendingForm;
+      closeModal();
+      form.submit();
+    });
+
+    cancel.addEventListener('click', closeModal);
+    modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !modal.hidden) closeModal();
+    });
+  })();
+</script>
+</body>
+</html>

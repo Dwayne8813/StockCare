@@ -1,0 +1,60 @@
+{{> head}}
+<body class="sc has-sidebar">
+<div class="app">
+  {{> sidebar}}
+  <main class="content">
+    {{> flash}}
+    <div class="page-header">
+      <div><h1>Waste &amp; Spoilage Log</h1><p class="muted">Record losses. Stock is deducted automatically.</p></div>
+    </div>
+
+    <div class="metrics metrics-2">
+      <div class="card metric"><span class="metric-label">Total Financial Loss</span><span class="metric-value text-red">{{money totalLoss}}</span></div>
+      <div class="card metric"><span class="metric-label">Waste Incidents</span><span class="metric-value">{{incidents}}</span></div>
+    </div>
+
+    <div class="waste-layout">
+      <div class="card form-card">
+        <h2>Log waste</h2>
+        <form method="POST" action="/waste" class="stack">
+          <label>Product
+            <select name="itemId" required>
+              <option value="" disabled selected>Select a product</option>
+              {{#each items}}<option value="{{id}}">{{itemName}} ({{quantity}} {{stockUnit this}} in stock)</option>{{/each}}
+            </select>
+          </label>
+          <label>Quantity wasted<input type="number" name="quantity" step="any" min="0" required></label>
+          <label>Reason
+            <select name="reason" required>
+              {{#each reasons}}<option value="{{this}}">{{this}}</option>{{/each}}
+            </select>
+          </label>
+          <button type="submit" class="btn btn-primary btn-block">Log waste</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Product</th><th>Quantity</th><th>Reason</th><th>Loss</th><th>By</th></tr></thead>
+            <tbody>
+            {{#each logs}}
+              <tr>
+                <td class="nowrap">{{fmtDateTime timestamp}}</td>
+                <td class="strong">{{itemName}}</td>
+                <td>{{quantity}} {{unit}}</td>
+                <td><span class="badge badge-blue">{{reason}}</span></td>
+                <td class="text-red">{{money lossValue}}</td>
+                <td>{{username}}</td>
+              </tr>
+            {{else}}
+              <tr><td colspan="6" class="empty">No waste recorded yet.</td></tr>
+            {{/each}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+{{> footer}}

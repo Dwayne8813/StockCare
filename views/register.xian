@@ -1,0 +1,17 @@
+{{> head}}
+<body class="sc auth-body">
+  <main class="auth-wrap">
+    <div class="auth-card">
+      <h1>Create account</h1>
+      <p class="muted">Set up access for your team.</p>
+      {{#if error}}<div class="alert alert-error">{{error}}</div>{{/if}}
+      <form method="POST" action="/register" class="stack">
+        <label>Username<input type="text" name="username" value="{{username}}" required autofocus autocomplete="username"></label>
+        <label>Password<input type="password" name="password" required minlength="6" autocomplete="new-password"></label>
+        <label>Confirm password<input type="password" name="confirm" required minlength="6" autocomplete="new-password"></label>
+        <button type="submit" class="btn btn-primary btn-block">Register</button>
+      </form>
+      <p class="auth-alt">Already registered? <a href="/login">Sign in</a></p>
+    </div>
+  </main>
+{{> footer}}

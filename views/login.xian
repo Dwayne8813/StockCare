@@ -1,0 +1,26 @@
+﻿{{> head}}
+<body class="sc auth-body">
+  <main class="auth-wrap">
+    <div class="auth-card">
+      <h1>Welcome back</h1>
+      <p class="muted">Sign in to manage your kitchen inventory.</p>
+      {{> flash}}
+      {{#if error}}<div class="alert alert-error">{{error}}</div>{{/if}}
+      <form method="POST" action="/login" class="stack">
+        <label>Username
+          <input id="username" type="text" name="username" value="{{username}}" placeholder="Enter your username" required autofocus autocomplete="username">
+        </label>
+        <label>Password
+          <span class="password-field">
+            <input id="password" type="password" name="password" placeholder="••••••••" required autocomplete="current-password">
+            <button type="button" class="password-toggle" aria-label="Toggle password visibility"
+              onclick="const p = document.getElementById('password'); p.type = p.type === 'password' ? 'text' : 'password';">Show</button>
+          </span>
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+      </form>
+      <p class="auth-alt">Don't have an account? <a href="/register">Create one</a></p>
+      <p class="auth-alt"><a href="/forgot-password">Forgot password?</a></p>
+    </div>
+  </main>
+{{> footer}}
