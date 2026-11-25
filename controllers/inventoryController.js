@@ -135,11 +135,11 @@ export const adjust = async (req, res) => {
   const delta = parseFloat(req.body.delta);
   if (isNaN(delta)) return res.redirect("/inventory");
 
-  const result = await sequelize.transaction(async () => {
-    const item = await Inventory.findByPk(req.params.id);
+  const result = await sequelize.transaction(async (t) => {
+    const item = await Inventory.findByPk(req.params.id, { transaction: t });
     if (!item) return null;
     const qty = Math.max(0, Math.round((item.quantity + delta) * 1000) / 1000);
-    await item.update({ quantity: qty, totalValue: round2(qty * item.unitCost) });
+    await item.update({ quantity: qty, totalValue: round2(qty * item.unitCost) }, { transaction: t });
     return { name: item.itemName, unit: item.unit, qty };
   });
   if (!result) return res.redirect("/inventory");

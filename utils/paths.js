@@ -12,6 +12,5 @@ export const UPLOAD_DIR = path.join(PUBLIC_DIR, "uploads");
 
 // Allows a packaged desktop build to keep data in a writable location.
 export const DATA_DIR = path.resolve(process.env.STOCKCARE_DATA_DIR || path.join(PROJECT_ROOT, "data"));
-export const DB_FILE = path.join(DATA_DIR, "stockcare-db.json");
 export const SESSION_SECRET_FILE = path.join(DATA_DIR, "session-secret.txt");
 export const SERVER_URL_FILE = path.join(DATA_DIR, "server-url.txt");
