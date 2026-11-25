@@ -1,6 +1,6 @@
 ﻿/*
     MIT License
-    
+
     Copyright (c) 2025 Christian I. Cabrera || XianFire Framework
     Mindoro State University - Philippines
 
@@ -22,111 +22,121 @@
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
     */
-    
+
 import express from "express";
-import path from "path";
+import path from "node:path";
+import fs from "node:fs";
+import crypto from "node:crypto";
 import session from "express-session";
+import hbs from "hbs";
 import router from "./routes/index.js";
 import { setupApp, errorHandler } from "./utils/setup.js";
-import fs from 'fs';
-import hbs from "hbs";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import {
+  PUBLIC_DIR, VIEWS_DIR, PARTIALS_DIR, DATA_DIR, SESSION_SECRET_FILE, SERVER_URL_FILE
+} from "./utils/paths.js";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
+
+function sessionSecret() {
+  if (process.env.STOCKCARE_SESSION_SECRET) return process.env.STOCKCARE_SESSION_SECRET;
+
+  try {
+    const saved = fs.readFileSync(SESSION_SECRET_FILE, "utf8").trim();
+    if (saved) return saved;
+  } catch (err) {
+    if (err.code !== "ENOENT") console.warn("Could not read session secret:", err.message);
+  }
+
+  const generated = crypto.randomBytes(32).toString("hex");
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(SESSION_SECRET_FILE, generated, { mode: 0o600 });
+  } catch (err) {
+    console.warn("Could not save session secret:", err.message);
+  }
+  return generated;
+}
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(process.cwd(), "public")));
+app.use(express.static(PUBLIC_DIR));
 
 app.use(session({
-  secret: "xianfire-secret-key",
+  secret: sessionSecret(),
   resave: false,
   saveUninitialized: false
 }));
 
-app.engine("xian", async (filePath, options, callback) => {
-  try {
-     const originalPartialsDir = hbs.partialsDir;
-    hbs.partialsDir = path.join(__dirname, 'views');
-
-    const result = await new Promise((resolve, reject) => {
-      hbs.__express(filePath, options, (err, html) => {
-        if (err) return reject(err);
-        resolve(html);
-      });
-    });
-
+app.engine("xian", (filePath, options, callback) => {
+  const originalPartialsDir = hbs.partialsDir;
+  hbs.partialsDir = VIEWS_DIR;
+  hbs.__express(filePath, options, (err, html) => {
     hbs.partialsDir = originalPartialsDir;
-    callback(null, result);
-  } catch (err) {
-    callback(err);
-  }
+    callback(err, html);
+  });
 });
 
-app.set("views", path.join(__dirname, "views"));
+app.set("views", VIEWS_DIR);
 app.set("view engine", "xian");
-const partialsDir = path.join(__dirname, "views/partials");
-fs.readdir(partialsDir, (err, files) => {
-  if (err) {
-    console.error("âŒ Could not read partials directory:", err);
-    return;
-  }
 
-   files
-    .filter(file => file.endsWith('.xian'))
-    .forEach(file => {
-      const partialName = file.replace('.xian', ''); 
-      const fullPath = path.join(partialsDir, file);
-
-      fs.readFile(fullPath, 'utf8', (err, content) => {
-        if (err) {
-          console.error(`âŒ Failed to read partial: ${file}`, err);
-          return;
-        }
-        hbs.registerPartial(partialName, content);
-        
-      });
-    });
-});
+// Register partials synchronously, before the server can accept requests.
+for (const file of fs.readdirSync(PARTIALS_DIR)) {
+  if (!file.endsWith(".xian")) continue;
+  const name = file.replace(/\.xian$/, "");
+  hbs.registerPartial(name, fs.readFileSync(path.join(PARTIALS_DIR, file), "utf8"));
+}
 
 setupApp(app, hbs);
 
 // Pass session username globally
 app.use((req, res, next) => {
-  res.locals.username = req.session.username || 'Chef';
+  res.locals.username = req.session.username || "Chef";
   next();
 });
 
-app.use('/', router);
+app.use("/", router);
 app.use(errorHandler);
 
 export default app;
 
 let resolveReady;
-export const serverReady = new Promise((resolve) => { resolveReady = resolve; });
+let rejectReady;
+export const serverReady = new Promise((resolve, reject) => {
+  resolveReady = resolve;
+  rejectReady = reject;
+});
+// Standalone runs have no consumer for this promise; avoid an unhandled rejection.
+// Electron's own `await` still receives the rejection.
+serverReady.catch(() => {});
 
 function listen(port) {
   const server = app.listen(port, () => {
     const url = `http://localhost:${server.address().port}`;
     console.log(`StockCare running at ${url}`);
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(SERVER_URL_FILE, url, "utf8");
+    } catch (err) {
+      console.warn("Could not record server URL:", err.message);
+    }
     resolveReady(url);
   });
+
   server.once("error", (err) => {
     if (err.code === "EADDRINUSE" && port < PORT + 20) {
       console.log(`Port ${port} is busy - trying ${port + 1}...`);
       listen(port + 1);
-    } else {
-      console.error("Could not start StockCare:", err.message);
-      process.exitCode = 1;
+      return;
     }
+    const failure = err.code === "EADDRINUSE"
+      ? new Error(`No free port found between ${PORT} and ${PORT + 20}.`)
+      : err;
+    console.error("Could not start StockCare:", failure.message);
+    rejectReady(failure);
+    process.exitCode = 1;
   });
 }
 
 // Always start the local server; both the browser and Electron use it.
 listen(PORT);
-

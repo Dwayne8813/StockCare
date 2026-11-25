@@ -72,6 +72,9 @@ function createWindow() {
 app.whenReady().then(async () => {
   await serverStartup;
   createWindow();
+}).catch(err => {
+  console.error('❌ Could not open StockCare:', err.message);
+  app.quit();
 });
 
 app.on('window-all-closed', () => {
@@ -92,5 +95,6 @@ const serverStartup = import('../index.js').then(async (mod) => {
   console.log('🚀 Express server running at', serverUrl);
 }).catch(err => {
   console.error('❌ Failed to start Express server:', err);
-  throw err;
+  // Quitting avoids an invisible window that waits forever for serverReady.
+  app.quit();
 });

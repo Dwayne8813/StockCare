@@ -6,15 +6,15 @@
   "scripts": {
     "start": "node index.js",
     "xian-start": "node index.js",
-    "xian": "nodemon index.js",
+    "xian": "node --watch index.js",
     "migrate": "node migrate.js",
     "create:model": "node create.js model",
     "create:controller": "node create.js controller",
     "xianca": "electron .",
-    "xian-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "xian-dev": "node electron/dev.js",
     "xian-build": "electron-builder",
-    "build": "npm run electron-build",
-    "dist": "npm run electron-build -- --publish=never"
+    "build": "npm run xian-build",
+    "dist": "npm run xian-build -- --publish=never"
   },
   "dependencies": {
     "bcrypt": "^5.1.0",

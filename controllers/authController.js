@@ -1,6 +1,12 @@
 import bcrypt from "bcrypt";
+import crypto from "node:crypto";
 import { User } from "../models/userModel.js";
 import { logEvent } from "../utils/audit.js";
+
+const RESET_CODE_MINUTES = 10;
+const RESET_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const newResetCode = (length = 8) =>
+  Array.from({ length }, () => RESET_ALPHABET[crypto.randomInt(RESET_ALPHABET.length)]).join("");
 
 export const loginPage = (req, res) => {
   if (req.session.userId) return res.redirect("/inventory");
@@ -74,4 +80,65 @@ export const logoutUser = async (req, res) => {
     res.clearCookie("connect.sid");
     res.redirect("/login");
   });
+};
+
+// Offline password reset: a one-time code is generated locally and shown on screen
+// because this app has no email/internet connection. Only its bcrypt hash is stored.
+export const requestPasswordReset = async (req, res) => {
+  const username = (req.body.username || "").trim();
+  const code = newResetCode();
+  const user = username ? await User.findOne({ where: { username } }) : null;
+  const expiresAt = Date.now() + RESET_CODE_MINUTES * 60 * 1000;
+
+  if (user) {
+    await user.update({
+      resetTokenHash: await bcrypt.hash(code, 10),
+      resetTokenExpiresAt: new Date(expiresAt).toISOString()
+    });
+    req.session.reset = { userId: user.id, expiresAt };
+    await logEvent(req, "PASSWORD_RESET_REQUESTED", `Reset code requested for ${user.username}`, user.username);
+  } else {
+    // Same response shape for unknown users; the displayed code is deliberately unusable.
+    req.session.reset = null;
+    await logEvent(req, "PASSWORD_RESET_REQUESTED", `Reset code requested for "${username || "empty"}"`, username || "anonymous");
+  }
+
+  res.render("forgotpassword", {
+    title: "Forgot Password",
+    stage: "code",
+    code,
+    username,
+    notice: `This app is offline, so the reset code is shown here instead of emailed. It expires in ${RESET_CODE_MINUTES} minutes.`
+  });
+};
+
+export const resetPassword = async (req, res) => {
+  const code = (req.body.code || "").trim().toUpperCase();
+  const { password, confirm } = req.body;
+  const reset = req.session.reset;
+  const fail = (error) => res.status(400).render("forgotpassword", {
+    title: "Forgot Password", stage: "code", error
+  });
+
+  if (!reset || !reset.userId) return fail("Request a reset code first.");
+  if (!password || password.length < 6) return fail("Password must be at least 6 characters.");
+  if (password !== confirm) return fail("Passwords do not match.");
+
+  const user = await User.findByPk(reset.userId);
+  const expires = user && user.resetTokenExpiresAt ? new Date(user.resetTokenExpiresAt).getTime() : 0;
+  if (!user || !user.resetTokenHash || !expires || Date.now() > expires) {
+    req.session.reset = null;
+    return fail("That reset code has expired. Request a new one.");
+  }
+  if (!(await bcrypt.compare(code, user.resetTokenHash))) return fail("Incorrect reset code.");
+
+  await user.update({
+    password: await bcrypt.hash(password, 10),
+    resetTokenHash: null,
+    resetTokenExpiresAt: null
+  });
+  req.session.reset = null;
+  await logEvent(req, "PASSWORD_RESET", `Password reset for ${user.username}`, user.username);
+  req.session.flash = { type: "success", text: "Password updated. You can sign in now." };
+  res.redirect("/login");
 };

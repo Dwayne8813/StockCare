@@ -4,14 +4,35 @@
 // This module exposes the small Sequelize-compatible surface the app actually uses.
 
 import fs from "node:fs";
-import path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Op, DataTypes } from "sequelize";
+import { DATA_DIR, DB_FILE } from "../utils/paths.js";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-export const STORAGE_FILE = path.join(DATA_DIR, "stockcare-db.json");
+export const STORAGE_FILE = DB_FILE;
 
 let state = { version: 1, nextId: {}, tables: {} };
 let writes = Promise.resolve();
+
+// Serialize read-modify-write work so concurrent requests cannot overwrite each other.
+let lock = Promise.resolve();
+const transactionScope = new AsyncLocalStorage();
+
+function exclusive(fn) {
+  const run = lock.then(fn, fn);
+  lock = run.catch(() => {});
+  return run;
+}
+
+async function withWriteLock(fn) {
+  // A real transaction already holds the lock and flushes once at commit.
+  if (transactionScope.getStore()) return fn();
+  return exclusive(fn);
+}
+
+function maybePersist() {
+  // A transaction flushes once, after the whole read-modify-write sequence finishes.
+  return transactionScope.getStore() ? Promise.resolve() : persist();
+}
 
 function clone(value) {
   if (value === undefined) return undefined;
@@ -135,21 +156,25 @@ class LocalInstance {
   }
 
   async update(changes = {}) {
-    const next = { ...this._row, ...changes };
-    if (this._model.options.timestamps !== false) next.updatedAt = new Date().toISOString();
-    const saved = this._model._replace(this._row, next);
-    if (!saved) throw new Error("Record no longer exists.");
-    this._row = saved;
-    Object.assign(this, saved);
-    await persist();
-    return this;
+    return withWriteLock(async () => {
+      const next = { ...this._row, ...changes };
+      if (this._model.options.timestamps !== false) next.updatedAt = new Date().toISOString();
+      const saved = this._model._replace(this._row, next);
+      if (!saved) throw new Error("Record no longer exists.");
+      this._row = saved;
+      Object.assign(this, saved);
+      await maybePersist();
+      return this;
+    });
   }
 
   async destroy() {
-    const index = this._model.rows.findIndex((row) => row === this._row);
-    if (index !== -1) this._model.rows.splice(index, 1);
-    await persist();
-    return 1;
+    return withWriteLock(async () => {
+      const index = this._model.rows.findIndex((row) => row === this._row);
+      if (index !== -1) this._model.rows.splice(index, 1);
+      await maybePersist();
+      return 1;
+    });
   }
 
   async reload() {
@@ -207,27 +232,29 @@ class LocalModel {
   }
 
   async create(values = {}) {
-    const row = { ...this._rowWithDefaults(), ...values };
-    delete row.id;
+    return withWriteLock(async () => {
+      const row = { ...this._rowWithDefaults(), ...values };
+      delete row.id;
 
-    for (const [key, definition] of Object.entries(this.attributes)) {
-      if (!definition || !definition.unique) continue;
-      if (this.rows.some((existing) => looseEqual(existing[key], row[key]))) {
-        const error = new Error(`${key} must be unique.`);
-        error.name = "SequelizeUniqueConstraintError";
-        throw error;
+      for (const [key, definition] of Object.entries(this.attributes)) {
+        if (!definition || !definition.unique) continue;
+        if (this.rows.some((existing) => looseEqual(existing[key], row[key]))) {
+          const error = new Error(`${key} must be unique.`);
+          error.name = "SequelizeUniqueConstraintError";
+          throw error;
+        }
       }
-    }
 
-    if (this.options.timestamps !== false) {
-      const now = new Date().toISOString();
-      row.createdAt = now;
-      row.updatedAt = now;
-    }
-    row.id = state.nextId[this.tableName]++;
-    this.rows.push(row);
-    await persist();
-    return new LocalInstance(this, row);
+      if (this.options.timestamps !== false) {
+        const now = new Date().toISOString();
+        row.createdAt = now;
+        row.updatedAt = now;
+      }
+      row.id = state.nextId[this.tableName]++;
+      this.rows.push(row);
+      await maybePersist();
+      return new LocalInstance(this, row);
+    });
   }
 
   async findOne(options = {}) {
@@ -259,23 +286,27 @@ class LocalModel {
   }
 
   async destroy(options = {}) {
-    const kept = this.rows.filter((row) => !matches(row, options.where));
-    const removed = this.rows.length - kept.length;
-    state.tables[this.tableName] = kept;
-    if (removed) await persist();
-    return removed;
+    return withWriteLock(async () => {
+      const kept = this.rows.filter((row) => !matches(row, options.where));
+      const removed = this.rows.length - kept.length;
+      state.tables[this.tableName] = kept;
+      if (removed) await maybePersist();
+      return removed;
+    });
   }
 
   async update(values = {}, options = {}) {
-    let changed = 0;
-    for (const row of this.rows) {
-      if (!matches(row, options.where)) continue;
-      Object.assign(row, values);
-      if (this.options.timestamps !== false) row.updatedAt = new Date().toISOString();
-      changed++;
-    }
-    if (changed) await persist();
-    return [changed];
+    return withWriteLock(async () => {
+      let changed = 0;
+      for (const row of this.rows) {
+        if (!matches(row, options.where)) continue;
+        Object.assign(row, values);
+        if (this.options.timestamps !== false) row.updatedAt = new Date().toISOString();
+        changed++;
+      }
+      if (changed) await maybePersist();
+      return [changed];
+    });
   }
 }
 
@@ -296,29 +327,40 @@ class LocalSequelize {
   }
 
   async sync({ force = false } = {}) {
-    if (force) {
-      state = { version: 1, nextId: {}, tables: {} };
-      for (const model of Object.values(this.models)) {
-        state.tables[model.tableName] = [];
-        state.nextId[model.tableName] = 1;
-      }
-    } else {
-      for (const model of Object.values(this.models)) model._ensureTable();
-    }
-    await persist();
-    return this;
+    return exclusive(async () => {
+      await transactionScope.run({ active: true }, async () => {
+        if (force) {
+          state = { version: 1, nextId: {}, tables: {} };
+          for (const model of Object.values(this.models)) {
+            state.tables[model.tableName] = [];
+            state.nextId[model.tableName] = 1;
+          }
+        } else {
+          for (const model of Object.values(this.models)) model._ensureTable();
+        }
+      });
+      await persist();
+      return this;
+    });
   }
 
   async transaction(callback) {
-    // Snapshot-based transactions: an error restores the previous state.
-    const snapshot = clone(state);
-    try {
-      return await callback({ isTransaction: true });
-    } catch (err) {
-      state = snapshot;
-      await persist();
-      throw err;
-    }
+    // Nested transactions just join the outer one.
+    if (transactionScope.getStore()) return callback({ isTransaction: true });
+
+    // Serialize the whole read-modify-write sequence against other writers.
+    return exclusive(async () => {
+      const snapshot = clone(state);
+      try {
+        const result = await transactionScope.run({ active: true }, () => callback({ isTransaction: true }));
+        await persist();
+        return result;
+      } catch (err) {
+        state = snapshot;
+        await persist();
+        throw err;
+      }
+    });
   }
 
   async close() {

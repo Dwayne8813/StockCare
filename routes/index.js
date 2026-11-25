@@ -3,7 +3,8 @@ import { requireAuth } from "../middleware/auth.js";
 import { handleUpload } from "../middleware/upload.js";
 import {
   loginPage, registerPage, forgotPasswordPage, dashboardPage,
-  loginUser, registerUser, logoutUser
+  loginUser, registerUser, logoutUser,
+  requestPasswordReset, resetPassword
 } from "../controllers/authController.js";
 import * as inventory from "../controllers/inventoryController.js";
 import * as waste from "../controllers/wasteController.js";
@@ -20,6 +21,8 @@ router.post("/login", loginUser);
 router.get("/register", registerPage);
 router.post("/register", registerUser);
 router.get("/forgot-password", forgotPasswordPage);
+router.post("/forgot-password", wrap(requestPasswordReset));
+router.post("/forgot-password/reset", wrap(resetPassword));
 router.get("/logout", wrap(logoutUser));
 router.post("/logout", wrap(logoutUser));
 router.get("/dashboard", requireAuth, dashboardPage);

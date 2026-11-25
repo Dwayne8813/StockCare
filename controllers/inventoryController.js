@@ -1,16 +1,23 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import { Op } from "sequelize";
+import { sequelize } from "../models/db.js";
 import { Inventory } from "../models/inventoryModel.js";
 import { AuditLog } from "../models/auditLogModel.js";
 import { logEvent } from "../utils/audit.js";
 import { ymd } from "../utils/setup.js";
+import { PUBLIC_DIR } from "../utils/paths.js";
 
 const LOW_STOCK_THRESHOLD = 5; // quantity at or below this = "Low Stock"
 const CATEGORIES = ["Produce", "Meat & Poultry", "Seafood", "Dairy & Eggs", "Dry Goods", "Beverages", "Condiments & Sauces", "Frozen", "Bakery", "Other"];
-const UNITS = ["pcs", "pack", "box", "can", "bottle"];
+const UNITS = ["pcs", "pack", "box", "can", "bottle", "kg"];
 const AMOUNT_UNITS = ["mL", "L", "g", "kg", "pcs"];
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const validDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+};
 
 function statusOf(item) {
   const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD (local)
@@ -23,7 +30,7 @@ function statusOf(item) {
 
 function removeImage(img) {
   if (!img || !img.startsWith("/uploads/")) return;
-  fs.unlink(path.join(process.cwd(), "public", img), () => {});
+  fs.unlink(path.join(PUBLIC_DIR, img), () => {});
 }
 
 function parseBody(b) {
@@ -41,8 +48,12 @@ function parseBody(b) {
   if (!data.itemName) error = "Product name is required.";
   else if (isNaN(data.quantity) || data.quantity < 0) error = "Quantity must be zero or more.";
   else if (isNaN(data.unitCost) || data.unitCost < 0) error = "Unit cost must be zero or more.";
+  else if (!CATEGORIES.includes(data.category)) error = "Choose a valid category.";
+  else if (!UNITS.includes(data.unit)) error = "Choose a valid unit.";
   else if (data.amountPerUnit != null && (isNaN(data.amountPerUnit) || data.amountPerUnit <= 0)) error = "Amount per unit must be greater than zero.";
   else if (data.amountPerUnit != null && !data.amountUnit) error = "Choose an amount unit (mL, L, g, kg or pcs).";
+  else if (data.amountUnit && !AMOUNT_UNITS.includes(data.amountUnit)) error = "Choose a valid amount unit.";
+  else if (data.expiryDate && !validDate(data.expiryDate)) error = "Expiry date must be a real date in YYYY-MM-DD format.";
   return { data, error };
 }
 
@@ -121,12 +132,19 @@ export const update = async (req, res) => {
 };
 
 export const adjust = async (req, res) => {
-  const item = await Inventory.findByPk(req.params.id);
   const delta = parseFloat(req.body.delta);
-  if (!item || isNaN(delta)) return res.redirect("/inventory");
-  const qty = Math.max(0, Math.round((item.quantity + delta) * 1000) / 1000);
-  await item.update({ quantity: qty, totalValue: round2(qty * item.unitCost) });
-  await logEvent(req, "INVENTORY_ADJUSTED", `Adjusted ${item.itemName} by ${delta > 0 ? "+" : ""}${delta} ${item.unit} (now ${qty})`);
+  if (isNaN(delta)) return res.redirect("/inventory");
+
+  const result = await sequelize.transaction(async () => {
+    const item = await Inventory.findByPk(req.params.id);
+    if (!item) return null;
+    const qty = Math.max(0, Math.round((item.quantity + delta) * 1000) / 1000);
+    await item.update({ quantity: qty, totalValue: round2(qty * item.unitCost) });
+    return { name: item.itemName, unit: item.unit, qty };
+  });
+  if (!result) return res.redirect("/inventory");
+
+  await logEvent(req, "INVENTORY_ADJUSTED", `Adjusted ${result.name} by ${delta > 0 ? "+" : ""}${delta} ${result.unit} (now ${result.qty})`);
   res.redirect("/inventory");
 };
 
